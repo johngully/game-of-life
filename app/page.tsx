@@ -1,101 +1,268 @@
-import Image from "next/image";
+'use client'
+
+import React, { useState, useCallback, useEffect } from 'react';
+import { Cell, CellState, Grid } from '../types/gameOfLife';
+
+const generationDelayMilliseconds = 150;
+
+function createInitialGrid(width: number, height: number, aliveCells: Cell[] = []): Grid {
+  // First, create cells with all dead state
+  const cells: Cell[][] = Array(height).fill(null).map((_, y) =>
+    Array(width).fill(null).map((_, x) => ({
+      state: 'dead',
+      x,
+      y,
+      neighbors: [],
+    }))
+  );
+
+  // Set the state of alive cells
+  for (const aliveCell of aliveCells) {
+    if (aliveCell.x < width && aliveCell.y < height) {
+      cells[aliveCell.y][aliveCell.x].state = 'alive';
+    }
+  }
+
+  // Assign neighbors to each cell
+  for (const row of cells) {
+    for (const cell of row) {
+      cell.neighbors = getNeighbors(cells, cell, width, height);
+    }
+  }
+
+  return { cells, width, height, generation: 0 };
+}
+
+function getNeighbors(cells: Cell[][], cell: Cell, width: number, height: number): Cell[] {
+  const neighbors: Cell[] = [];
+  const directions = [
+    { x: -1, y: -1 }, { x: -1, y: 0 }, { x: -1, y: 1 },
+    { x: 0, y: -1 },                  { x: 0, y: 1 },
+    { x: 1, y: -1 }, { x: 1, y: 0 }, { x: 1, y: 1 }
+  ];
+
+  for (const direction of directions) {
+    const newX = cell.x + direction.x;
+    const newY = cell.y + direction.y;
+    if (newX >= 0 && newX < width && newY >= 0 && newY < height) {
+      const neighbor = cells[newY][newX];
+      neighbors.push(neighbor);
+    }
+  }
+  return neighbors;
+}
+
+function createNextGeneration(currentGrid: Grid): Grid {
+  const newCells: Cell[][] = currentGrid.cells.map(row =>
+    row.map(cell => {
+      const state = getNextCellState(cell);
+      const newCell = { ...cell, state };
+      return newCell;
+    })
+  );
+
+  for (const row of newCells) {
+    for (const cell of row) {
+      cell.neighbors = getNeighbors(newCells, cell, currentGrid.width, currentGrid.height);
+    }
+  }
+
+  return { 
+    ...currentGrid, 
+    cells: newCells, 
+    generation: currentGrid.generation + 1  // Increment generation
+  };
+}
+
+function getNextCellState(cell: Cell): CellState {
+  const state = shouldSurvive(cell) || shouldBeBorn(cell) ? 'alive' : 'dead';
+  return state;
+
+}
+
+function countLiveNeighbors(cell: Cell): number {
+  return cell.neighbors.filter(neighbor => neighbor.state === 'alive').length;
+}
+
+function shouldSurvive(cell: Cell): boolean {
+  const liveNeighbors = countLiveNeighbors(cell);
+  return cell.state === 'alive' && (liveNeighbors === 2 || liveNeighbors === 3);
+}
+
+function shouldBeBorn(cell: Cell): boolean {
+  const liveNeighbors = countLiveNeighbors(cell);
+  return cell.state === 'dead' && liveNeighbors === 3;
+}
+
+function areGridsEqual(grid1: Grid, grid2: Grid): boolean {
+  if (grid1.width !== grid2.width || grid1.height !== grid2.height) {
+    return false;
+  }
+  for (let y = 0; y < grid1.height; y++) {
+    for (let x = 0; x < grid1.width; x++) {
+      if (grid1.cells[y][x].state !== grid2.cells[y][x].state) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+function getGenerationColor(generation: number): string {
+  const colors = [
+    'bg-red-500', 'bg-rose-500', 'bg-pink-500', 'bg-fuchsia-500', 'bg-purple-500', 
+    'bg-violet-500', 'bg-indigo-500', 'bg-blue-500', 'bg-sky-500', 'bg-cyan-500', 
+    'bg-teal-500', 'bg-emerald-500', 'bg-green-500', 'bg-lime-500', 'bg-yellow-500', 
+    'bg-amber-500', 'bg-orange-500', 'bg-red-500'
+  ];
+  return colors[generation % colors.length];
+}
 
 export default function Home() {
-  return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="https://nextjs.org/icons/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-semibold">
-              app/page.tsx
-            </code>
-            .
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
+  const width = 25;
+  const height = 25;
+  const [aliveCells, setAliveCells] = useState<Cell[]>([]);
+  const [grid, setGrid] = useState<Grid>(createInitialGrid(width, height));
+  const [isRunning, setIsRunning] = useState(false);
+  const [isAutoAdvancing, setIsAutoAdvancing] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragState, setDragState] = useState<'alive' | 'dead'>('alive');
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+  const advanceGeneration = useCallback(() => {
+    setGrid(currentGrid => {
+      const nextGrid = createNextGeneration(currentGrid);
+      if (areGridsEqual(currentGrid, nextGrid)) {
+        setIsAutoAdvancing(false);
+        setIsRunning(false);
+      }
+      return nextGrid;
+    });
+  }, []);
+
+  useEffect(() => {
+    let intervalId: NodeJS.Timeout | null = null;
+    if (isRunning && isAutoAdvancing) {
+      intervalId = setInterval(advanceGeneration, generationDelayMilliseconds); // Advance every 500ms
+    }
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [isRunning, isAutoAdvancing, advanceGeneration]);
+
+  function toggleCellState(x: number, y: number) {
+    if (isRunning) return;
+
+    setAliveCells(currentAliveCells => {
+      const cellIndex = currentAliveCells.findIndex(cell => cell.x === x && cell.y === y);
+      if (cellIndex > -1) {
+        return currentAliveCells.filter((_, index) => index !== cellIndex);
+      } else {
+        return [...currentAliveCells, { state: 'alive', x, y, neighbors: [] }];
+      }
+    });
+
+    const newAliveCells = [
+      ...aliveCells,
+      { state: 'alive' as const, x, y, neighbors: [] }
+    ];
+    const newGrid = createInitialGrid(width, height, newAliveCells);
+    setGrid(newGrid);
+  }
+
+  function handleMouseDown(x: number, y: number) {
+    if (isRunning) return;
+    setIsDragging(true);
+    const newState = grid.cells[y][x].state === 'alive' ? 'dead' : 'alive';
+    setDragState(newState);
+    toggleCellState(x, y);
+  }
+
+  function handleMouseEnter(x: number, y: number) {
+    if (isRunning || !isDragging) return;
+    if (dragState === 'alive' && grid.cells[y][x].state === 'dead') {
+      toggleCellState(x, y);
+    } else if (dragState === 'dead' && grid.cells[y][x].state === 'alive') {
+      toggleCellState(x, y);
+    }
+  }
+
+  function handleMouseUp() {
+    setIsDragging(false);
+  }
+
+  useEffect(() => {
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, []);
+
+  function startSimulation() {
+    setIsRunning(true);
+  }
+
+  function toggleAutoAdvance() {
+    setIsAutoAdvancing(current => !current);
+  }
+
+  function resetGrid() {
+    setAliveCells([]);
+    setGrid(createInitialGrid(width, height));
+    setIsRunning(false);
+    setIsAutoAdvancing(false);
+  }
+
+  return (
+    <main className="flex min-h-screen flex-col items-center justify-between p-3">
+      <div>Generation: {grid.generation}</div>
+      <div 
+        className="grid gap-1 py-3" 
+        style={{ gridTemplateColumns: `repeat(${grid.width}, 1fr)` }}
+        onMouseLeave={() => setIsDragging(false)}
+      >
+        {grid.cells.flat().map((cell) => (
+          <div
+            key={`${cell.x}-${cell.y}`}
+            className={`rounded-full w-6 h-6 border ${
+              cell.state === 'alive' ? getGenerationColor(grid.generation) : 'bg-white'
+            } ${!isRunning ? 'cursor-pointer hover:bg-gray-200' : ''}`}
+            onMouseDown={() => handleMouseDown(cell.x, cell.y)}
+            onMouseEnter={() => handleMouseEnter(cell.x, cell.y)}
+          />
+        ))}
+      </div>
+      <div className="flex gap-4 py-3">
+        {!isRunning && (
+          <button 
+            className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
+            onClick={startSimulation}
           >
-            <Image
-              className="dark:invert"
-              src="https://nextjs.org/icons/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
-        </div>
-      </main>
-      <footer className="row-start-3 flex gap-6 flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
+            Start
+          </button>
+        )}
+        {isRunning && (
+          <>
+            <button 
+              className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+              onClick={advanceGeneration}
+            >
+              Next
+            </button>
+            <button 
+              className={`px-4 py-2 ${isAutoAdvancing ? 'bg-yellow-500 hover:bg-yellow-600' : 'bg-green-500 hover:bg-green-600'} text-white rounded`}
+              onClick={toggleAutoAdvance}
+            >
+              {isAutoAdvancing ? 'Pause' : 'Auto'}
+            </button>
+          </>
+        )}
+        <button 
+          className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600"
+          onClick={resetGrid}
         >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
+          Reset
+        </button>
+      </div>
+    </main>
   );
 }
